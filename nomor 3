@@ -1,0 +1,38 @@
+// UTS IoT No.3 - Saklar beban dengan modul relay
+// IN relay -> GPIO19. COM & NO relay seri dengan lampu dan sumber daya.
+// Relay ON 5 detik, OFF 3 detik, berulang.
+
+const int RELAY_PIN = 19;
+
+// PENENTUAN LOGIKA PEMICU RELAY:
+// - Active HIGH : relay aktif (lampu nyala) saat pin IN diberi HIGH.
+// - Active LOW  : relay aktif saat pin IN diberi LOW (umum pada modul relay
+//                 dengan optocoupler/transistor yang memakai jumper H/L).
+// Cara menentukan: lihat datasheet/label modul, atau uji coba - kirim HIGH lalu
+// amati apakah LED indikator relay/lampu menyala. Jika lampu menyala saat LOW,
+// berarti modul Active LOW. Ubah konstanta di bawah sesuai hasil pengujian.
+const bool RELAY_ACTIVE_LOW = false;
+
+const unsigned long ON_TIME_MS  = 5000;
+const unsigned long OFF_TIME_MS = 3000;
+
+void relayWrite(bool on) {
+  // Jika Active LOW, logika dibalik
+  digitalWrite(RELAY_PIN, (on ^ RELAY_ACTIVE_LOW) ? HIGH : LOW);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(RELAY_PIN, OUTPUT);
+  relayWrite(false);                // awal: relay mati
+}
+
+void loop() {
+  relayWrite(true);
+  Serial.println("Relay ON  -> lampu menyala");
+  delay(ON_TIME_MS);
+
+  relayWrite(false);
+  Serial.println("Relay OFF -> lampu padam");
+  delay(OFF_TIME_MS);
+}
