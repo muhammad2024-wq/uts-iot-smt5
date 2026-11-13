@@ -1,0 +1,118 @@
+// UTS IoT No.5 - Telemetri & kontrol jarak jauh via MQTT
+// Publish  : kegelapan LDR tiap 5 detik -> unisda/informatika/[NIM]/cahaya
+// Subscribe: unisda/informatika/24063004/lampu  ("ON" / "OFF") -> relay
+
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+// ====== GANTI NIM KAMU DI SINI ======
+const char* NIM = "24063004";
+
+// Wi-Fi simulator Wokwi (tanpa password). Di hardware asli ganti dengan Wi-Fi sendiri.
+const char* WIFI_SSID = "Wokwi-GUEST";
+const char* WIFI_PASS = "";
+
+const char* MQTT_BROKER = "broker.emqx.io";
+const int   MQTT_PORT   = 1883;
+
+const int LDR_PIN   = 34;
+const int RELAY_PIN = 19;
+const bool RELAY_ACTIVE_LOW = false;;     // sesuaikan dengan hasil uji no.3;    // sesuaikan dengan hasil uji no.3
+const bool ADC_HIGH_WHEN_DARK = true;   // sesuaikan dengan hasil uji no.2
+
+const unsigned long PUBLISH_INTERVAL_MS = 5000;
+
+WiFiClient espClient;
+PubSubClient mqtt(espClient);
+
+String topicCahaya;
+String topicLampu;
+unsigned long lastPublish = 0;
+unsigned long lastReconnect = 0;
+
+void relayWrite(bool on) {
+  int level = (on ^ RELAY_ACTIVE_LOW) ? HIGH : LOW;
+  digitalWrite(RELAY_PIN, level);
+  Serial.printf("Relay %s -> pin 19 = %s\n", on ? "ON" : "OFF", level == HIGH ? "HIGH" : "LOW");
+}
+
+float readDarknessPercent() {
+  int raw = analogRead(LDR_PIN);
+  float p = raw * 100.0 / 4095.0;
+  float darkness = ADC_HIGH_WHEN_DARK ? p : (100.0 - p);
+  return constrain(darkness, 0.0, 100.0);
+}
+
+// Dipanggil otomatis saat ada pesan masuk pada topik yang di-subscribe
+void onMessage(char* topic, byte* payload, unsigned int length) {
+  String msg;
+  for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
+  msg.trim();
+  Serial.printf("Pesan [%s]: %s\n", topic, msg.c_str());
+
+  if (msg == "ON") {
+    relayWrite(true);
+    Serial.println("Relay dinyalakan");
+  } else if (msg == "OFF") {
+    relayWrite(false);
+    Serial.println("Relay dimatikan");
+  }
+}
+
+void connectWiFi() {
+  Serial.print("Menghubungkan Wi-Fi");
+  WiFi.begin(WIFI_SSID, WIFI_PASS, 6);   // channel 6 untuk Wokwi-GUEST
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWi-Fi terhubung, IP: " + WiFi.localIP().toString());
+}
+
+bool connectMQTT() {
+  String clientId = String("esp32-") + NIM;
+  Serial.print("Menghubungkan MQTT... ");
+  if (mqtt.connect(clientId.c_str())) {
+    Serial.println("berhasil");
+    mqtt.subscribe(topicLampu.c_str());
+    return true;
+  }
+  Serial.printf("gagal (rc=%d)\n", mqtt.state());
+  return false;
+}
+
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+  pinMode(RELAY_PIN, OUTPUT);
+  relayWrite(false);
+
+  topicCahaya = String("unisda/informatika/") + 24063004 + "/cahaya";
+  topicLampu  = String("unisda/informatika/") + 24063004 + "/lampu";
+
+  connectWiFi();
+  mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+  mqtt.setCallback(onMessage);
+}
+
+void loop() {
+  // Sambung ulang MQTT bila putus (percobaan tiap 5 detik, tidak memblokir)
+  if (!mqtt.connected()) {
+    if (millis() - lastReconnect > 5000) {
+      lastReconnect = millis();
+      connectMQTT();
+    }
+  } else {
+    mqtt.loop();
+  }
+
+  // Publish data cahaya tiap 5 detik
+  if (mqtt.connected() && millis() - lastPublish >= PUBLISH_INTERVAL_MS) {
+    lastPublish = millis();
+    char payload[16];
+    snprintf(payload, sizeof(payload), "%.1f", readDarknessPercent());
+    mqtt.publish(topicCahaya.c_str(), payload);
+    Serial.printf("Publish [%s]: %s\n", topicCahaya.c_str(), payload);
+  }
+}
