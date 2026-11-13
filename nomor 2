@@ -1,0 +1,33 @@
+// UTS IoT No.2 - Pembacaan LDR (ADC 12-bit) dan konversi ke % kegelapan
+// Output voltage divider (LDR + 10k) -> GPIO34 (ADC1)
+
+const int LDR_PIN = 34;
+
+// Atur sesuai rangkaian (uji dengan menggeser lux di Wokwi):
+// true  -> nilai ADC BESAR saat GELAP
+// false -> nilai ADC BESAR saat TERANG
+const bool ADC_HIGH_WHEN_DARK = true;
+
+const unsigned long INTERVAL_MS = 1000;
+unsigned long lastPrint = 0;
+
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(12);        // 0 - 4095
+  analogSetAttenuation(ADC_11db);  // rentang ~0 - 3.3 V
+}
+
+void loop() {
+  if (millis() - lastPrint >= INTERVAL_MS) {
+    lastPrint = millis();
+
+    int raw = analogRead(LDR_PIN);                 // nilai mentah 0..4095
+    float percentADC = raw * 100.0 / 4095.0;       // ADC dalam persen
+
+    // Konversi ke persentase kegelapan 0% (terang) - 100% (gelap)
+    float darkness = ADC_HIGH_WHEN_DARK ? percentADC : (100.0 - percentADC);
+    darkness = constrain(darkness, 0.0, 100.0);
+
+    Serial.printf("ADC mentah: %d | Kegelapan: %.1f%%\n", raw, darkness);
+  }
+}
