@@ -1,0 +1,54 @@
+// UTS IoT No.1 - Kontrol kecerahan LED bertingkat (PWM + debounce)
+// LED -> GPIO16, Push Button -> GPIO4 (INPUT_PULLUP, sisi lain ke GND)
+
+const int LED_PIN = 16;
+const int BTN_PIN = 4;
+
+const int PWM_FREQ = 5000;   // 5 kHz
+const int PWM_RES  = 8;      // 8-bit -> duty 0..255
+
+// Tingkat kecerahan dalam persen: Padam -> Redup -> Sedang -> Terang
+const int LEVELS[] = {0, 30, 70, 100};
+const int LEVEL_COUNT = sizeof(LEVELS) / sizeof(LEVELS[0]);
+
+const unsigned long DEBOUNCE_MS = 50;
+
+int levelIndex = 0;
+int lastReading = HIGH;          // pembacaan mentah terakhir
+int stableState = HIGH;          // status tombol yang sudah stabil
+unsigned long lastChangeTime = 0;
+
+void setLedPercent(int percent) {
+  int duty = percent * 255 / 100;   // persen -> duty cycle 0..255
+  ledcWrite(LED_PIN, duty);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BTN_PIN, INPUT_PULLUP);   // tombol ditekan = LOW
+
+  // ESP32 Arduino core 3.x. (Core 2.x: ledcSetup(0,5000,8); ledcAttachPin(LED_PIN,0);)
+  ledcAttach(LED_PIN, PWM_FREQ, PWM_RES);
+  setLedPercent(LEVELS[levelIndex]);
+}
+
+void loop() {
+  int reading = digitalRead(BTN_PIN);
+
+  // Jika pembacaan berubah, catat waktunya (mulai hitung debounce)
+  if (reading != lastReading) {
+    lastChangeTime = millis();
+    lastReading = reading;
+  }
+
+  // Jika sudah stabil lebih dari DEBOUNCE_MS dan berbeda dari status stabil sebelumnya
+  if ((millis() - lastChangeTime) > DEBOUNCE_MS && reading != stableState) {
+    stableState = reading;
+
+    if (stableState == LOW) {                       // tombol baru saja ditekan
+      levelIndex = (levelIndex + 1) % LEVEL_COUNT;  // 0->1->2->3->0
+      setLedPercent(LEVELS[levelIndex]);
+      Serial.printf("Kecerahan LED: %d%%\n", LEVELS[levelIndex]);
+    }
+  }
+}
